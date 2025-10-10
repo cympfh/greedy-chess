@@ -1,4 +1,3 @@
-import concurrent.futures
 import os
 import subprocess
 from dataclasses import dataclass
@@ -130,14 +129,8 @@ class ChessBoard:
         self.board[to_rank][to_file] = piece
         self.board[from_rank][from_file] = None
 
-        # 棋譜に追加（手番は2手で1つ）
-        move_number: int = (len(self.move_history) // 2) + 1
-        if len(self.move_history) % 2 == 0:
-            # 白（先手）の手
-            self.move_history.append(f"{move_number}. {move_str}")
-        else:
-            # 黒（後手）の手 - 前の手に追加
-            self.move_history[-1] += f" {move_str}"
+        # 棋譜に追加
+        self.move_history.append(move_str)
 
         return True
 
@@ -219,27 +212,11 @@ class ChessBoard:
 
     def _record_castling(self, notation: str) -> None:
         """キャスリングを記録"""
-        # 棋譜に追加（手番は2手で1つ）
-        move_number: int = (len(self.move_history) // 2) + 1
-        if len(self.move_history) % 2 == 0:
-            # 白（先手）の手
-            self.move_history.append(f"{move_number}. {notation}")
-        else:
-            # 黒（後手）の手 - 前の手に追加
-            self.move_history[-1] += f" {notation}"
+        self.move_history.append(notation)
 
     def get_kifu_string(self) -> str:
         """棋譜を文字列として取得(URL用)"""
-        # 手番号を除いて移動記法のみを結合
-        moves: list[str] = []
-        for entry in self.move_history:
-            # "1. e2e4 e7e5" のような形式から手を抽出
-            parts: list[str] = entry.split(". ", 1)
-            if len(parts) > 1:
-                # 手番号の後の部分を空白で分割
-                move_parts: list[str] = parts[1].split()
-                moves.extend(move_parts)
-        return " ".join(moves)
+        return " ".join(self.move_history)
 
     def load_kifu_from_string(self, kifu_string: str) -> bool:
         """棋譜文字列を読み込んで盤面を再構築"""
@@ -247,31 +224,17 @@ class ChessBoard:
             return False
 
         try:
-            # 棋譜を空白で分割
-            moves: list[str] = kifu_string.strip().split()
-
-            # 移動履歴を構築（2手で1つの手番）
-            self.move_history = []
-            for i in range(0, len(moves), 2):
-                move_number: int = (i // 2) + 1
-                if i + 1 < len(moves):
-                    # 白と黒の両方の手がある
-                    self.move_history.append(
-                        f"{move_number}. {moves[i]} {moves[i + 1]}"
-                    )
-                else:
-                    # 白の手のみ（黒の手がまだない）
-                    self.move_history.append(f"{move_number}. {moves[i]}")
+            # 棋譜を空白で分割して移動履歴に設定
+            self.move_history = kifu_string.strip().split()
 
             # Rust AIと同期して正しい盤面を取得
             return self.sync_board_with_rust()
         except Exception:
             return False
 
-    def _search_with_depth(
-        self, kifu: str, depth: int, timeout: float | None
-    ) -> str | None:
-        """指定深さで探索を実行"""
+    def get_best_move(self, depth: int) -> str | None:
+        """Rust AIから最善手を取得（並列探索）"""
+        kifu: str = self.get_kifu_string()
         process = subprocess.Popen(
             ["cargo", "run", "--release", "--", "-d", str(depth)],
             stdin=subprocess.PIPE,
@@ -281,49 +244,22 @@ class ChessBoard:
             cwd=os.path.dirname(os.path.abspath(__file__)),
         )
         try:
+            timeout = 10.0
             stdout, stderr = process.communicate(input=kifu, timeout=timeout)
+            print("# get_best_move")
+            print(stdout)
+            print(stderr)
             if process.returncode == 0:
                 output_lines: list[str] = stdout.strip().split("\n")
                 if output_lines:
                     lines = [line for line in output_lines if not line.startswith(";")]
                     return lines[0].strip()
-            print(str(stderr))
             return None
         except subprocess.TimeoutExpired:
             process.kill()
             return None
         except Exception:
             return None
-
-    def get_best_move(self) -> tuple[str, int] | None:
-        """Rust AIから最善手を取得（並列探索）
-
-        Returns:
-            tuple[str, int]: (最善手, 使用した深さ) or None
-        """
-        kifu: str = self.get_kifu_string()
-
-        # 3つの深さで並列探索
-        results: dict = {}
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            future_d3 = executor.submit(self._search_with_depth, kifu, 3, None)
-            future_d4 = executor.submit(self._search_with_depth, kifu, 4, 3.0)
-            future_d5 = executor.submit(self._search_with_depth, kifu, 5, 3.0)
-
-            for depth, future in [(3, future_d3), (4, future_d4), (5, future_d5)]:
-                try:
-                    result: str | None = future.result(timeout=5.5)
-                    if result:
-                        results[depth] = result
-                except concurrent.futures.TimeoutError:
-                    pass
-
-        # 最も深い探索の結果を優先
-        for depth in [5, 4, 3]:
-            if depth in results:
-                return (results[depth], depth)
-
-        return None
 
     def sync_board_with_rust(self) -> bool:
         """Rust AIから盤面の状態を取得して同期"""
@@ -412,34 +348,6 @@ class ChessBoard:
 
 def render_chess_board(chess_board: ChessBoard) -> None:
     """チェス盤をレンダリング"""
-    st.markdown(
-        """
-    <style>
-    .chess-square {
-        width: 60px;
-        height: 60px;
-        display: inline-block;
-        text-align: center;
-        vertical-align: middle;
-        font-size: 40px;
-        line-height: 60px;
-        cursor: pointer;
-    }
-    .light-square {
-        background-color: #f0d9b5;
-    }
-    .dark-square {
-        background-color: #b58863;
-    }
-    .selected-square {
-        background-color: #7fc97f !important;
-        box-shadow: 0 0 10px 3px #4a9;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
     # ファイル名のラベル
     col_labels: list[str] = ["a", "b", "c", "d", "e", "f", "g", "h"]
 
@@ -458,19 +366,17 @@ def render_chess_board(chess_board: ChessBoard) -> None:
         for file in range(8):
             with cols[file + 1]:
                 piece: Piece | None = chess_board.get_piece(rank, file)
-                is_light: bool = (rank + file) % 2 == 0
-                square_class: str = "light-square" if is_light else "dark-square"
-
-                # 選択されているマスをハイライト
-                if chess_board.selected_square == (rank, file):
-                    square_class += " selected-square"
-
                 piece_symbol: str = piece.get_unicode() if piece else ""
+
+                # 明るいマス（白）か暗いマス（灰色）かを判定
+                is_light: bool = (rank + file) % 2 == 0
+                button_type: str = "secondary" if is_light else "tertiary"
 
                 # ボタンで各マスを作成
                 if st.button(
                     piece_symbol,
                     key=f"sq_{rank}_{file}",
+                    type=button_type,
                     help=f"{col_labels[file]}{rank + 1}",
                     use_container_width=True,
                 ):
@@ -496,7 +402,7 @@ def render_chess_board(chess_board: ChessBoard) -> None:
 
 def main() -> None:
     st.set_page_config(page_title="Chess Visualizer", layout="wide")
-    st.title("♔ Chess Visualizer & Simulator")
+    st.title("♔  Chess Simulator ♙")
 
     # セッション状態の初期化
     if "chess_board" not in st.session_state:
@@ -506,6 +412,10 @@ def main() -> None:
         kifu_from_url: str | None = st.query_params.get("kifu", None)
         if kifu_from_url:
             st.session_state.chess_board.load_kifu_from_string(kifu_from_url)
+
+    # AI推奨手のキャッシュを初期化
+    if "best_move_cache" not in st.session_state:
+        st.session_state.best_move_cache = {}
 
     chess_board: ChessBoard = st.session_state.chess_board
 
@@ -523,9 +433,7 @@ def main() -> None:
     with col1:
         st.subheader("盤面")
         # 棋譜の手数から現在のターンを判定（偶数=白、奇数=黒）
-        total_moves: int = sum(
-            len(entry.split()[1:]) for entry in chess_board.move_history
-        )
+        total_moves: int = len(chess_board.move_history)
         turn_text: str = "白" if total_moves % 2 == 0 else "黒"
         st.info(f"現在のターン: {turn_text}")
         render_chess_board(chess_board)
@@ -536,16 +444,39 @@ def main() -> None:
             st.rerun()
 
     with col2:
-        # AI最善手を一番上に
         st.subheader("🤖 AI推奨手")
-        with st.spinner("AIが思考中..."):
-            result = chess_board.get_best_move()
-            if result:
-                best_move, depth = result
-                st.success(f"**{best_move}**")
-                st.caption(f"探索深さ: {depth}")
-            else:
-                st.warning("最善手を取得できませんでした")
+
+        # depthの初期化
+        if "depth" not in st.session_state:
+            st.session_state.depth = 3
+
+        depth = st.slider(
+            "探索深さの上限を選択",
+            min_value=3,
+            max_value=5,
+            value=st.session_state.depth,
+            step=1,
+            key="depth_slider",
+        )
+
+        # スライダーの値を保存
+        st.session_state.depth = depth
+        if depth >= 5:
+            st.warning("Too deep: 時間がかかる可能性")
+
+        current_kifu: str = chess_board.get_kifu_string()
+        cache_key = f"{current_kifu}_d{depth}"
+        result = None
+        if cache_key in st.session_state.best_move_cache:
+            result = st.session_state.best_move_cache[cache_key]
+        else:
+            with st.spinner("AIが思考中..."):
+                result = chess_board.get_best_move(depth)
+                st.session_state.best_move_cache[cache_key] = result
+        if result:
+            st.success(f"**{result}**")
+        else:
+            st.warning("最善手を取得できませんでした")
 
         # 棋譜をスクロール可能な領域に表示
         st.divider()
