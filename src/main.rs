@@ -47,25 +47,49 @@ struct Board {
     fullmove_number: u32,
 }
 
+/// ファイルとランクから盤面インデックス（0..63）を計算する
+///
+/// # 引数
+/// * `file` - ファイル番号 (0..7, a..h に対応)
+/// * `rank` - ランク番号 (0..7, 1段目..8段目に対応)
 fn idx(file: usize, rank: usize) -> usize {
     rank * 8 + file
-} // file:0..7(a..h), rank:0..7(1..8 だが0が1段)
+}
 
+/// 盤面インデックスからファイル番号を取得する
+///
+/// # 引数
+/// * `i` - 盤面インデックス (0..63)
 fn file_of(i: usize) -> usize {
     i % 8
 }
+/// 盤面インデックスからランク番号を取得する
+///
+/// # 引数
+/// * `i` - 盤面インデックス (0..63)
 fn rank_of(i: usize) -> usize {
     i / 8
 }
 
+/// ファイルとランクが盤面の範囲内かチェックする
+///
+/// # 引数
+/// * `file` - ファイル番号 (符号付き整数)
+/// * `rank` - ランク番号 (符号付き整数)
 fn in_bounds(file: isize, rank: isize) -> bool {
     (0..8).contains(&file) && (0..8).contains(&rank)
 }
+/// 符号付きファイルとランクから盤面インデックスを計算する
+///
+/// # 引数
+/// * `file` - ファイル番号 (符号付き整数)
+/// * `rank` - ランク番号 (符号付き整数)
 fn to_idx(file: isize, rank: isize) -> usize {
     (rank as usize) * 8 + (file as usize)
 }
 
 impl Board {
+    /// チェスの初期配置で盤面を作成する
     fn new_startpos() -> Self {
         use Color::*;
         use Kind::*;
@@ -109,13 +133,23 @@ impl Board {
         }
     }
 
+    /// 指定された位置の駒を取得する
+    ///
+    /// # 引数
+    /// * `i` - 盤面インデックス (0..63)
     fn piece_at(&self, i: usize) -> Option<Piece> {
         self.sq[i]
     }
+    /// 指定された位置に駒を配置する
+    ///
+    /// # 引数
+    /// * `i` - 盤面インデックス (0..63)
+    /// * `p` - 配置する駒（Noneの場合は駒を取り除く）
     fn set_piece(&mut self, i: usize, p: Option<Piece>) {
         self.sq[i] = p;
     }
 
+    /// 盤面をコメント形式で標準出力に表示する
     fn print_as_comment(&self) {
         println!(";");
         for r in (0..8).rev() {
@@ -164,6 +198,10 @@ impl Board {
         println!(";");
     }
 
+    /// 手番の色を反転する
+    ///
+    /// # 引数
+    /// * `c` - 現在の色
     fn other(c: Color) -> Color {
         if let Color::White = c {
             Color::Black
@@ -172,6 +210,13 @@ impl Board {
         }
     }
 
+    /// 指し手を盤面に適用する
+    ///
+    /// キャスリング、アンパッサン、昇格などの特殊な手も処理し、
+    /// キャスリング権やアンパッサン権、手数カウントを更新する
+    ///
+    /// # 引数
+    /// * `m` - 適用する指し手
     fn make_move(&mut self, m: Move) {
         // 基本適用（最低限）
         let mut moved = self.piece_at(m.from).expect("No piece on from");
@@ -288,6 +333,12 @@ impl Board {
 
     // ============ ここから指し手解釈（UCI/LAN 先、SAN 簡易後） ============
 
+    /// トークン（指し手の文字列）を解析して盤面に適用する
+    ///
+    /// SAN形式、UCI/LAN形式、キャスリング記号などに対応
+    ///
+    /// # 引数
+    /// * `token` - 指し手を表す文字列
     fn parse_and_play_token(&mut self, token: &str) -> Result<(), String> {
         let t = token.trim();
         if t.is_empty() {
@@ -326,6 +377,10 @@ impl Board {
         Ok(())
     }
 
+    /// キャスリングの手を構築する
+    ///
+    /// # 引数
+    /// * `kingside` - true ならキングサイド、false ならクイーンサイド
     fn build_castle(&self, kingside: bool) -> Result<Move, String> {
         let (from, to) = match self.side {
             Color::White => {
@@ -354,6 +409,15 @@ impl Board {
         })
     }
 
+    /// UCI/LAN形式の指し手の解析を試みる
+    ///
+    /// "e2e4", "e7e8Q" などの形式を解析する
+    ///
+    /// # 引数
+    /// * `t` - 解析する文字列
+    ///
+    /// # 戻り値
+    /// UCI形式と判定できた場合はSome(Move)、そうでなければNone
     fn try_parse_uci_like(&self, t: &str) -> Result<Option<Move>, String> {
         // 例: "e2e4", "e7e8Q"
         // a-h, 1-8, a-h, 1-8, [NBRQ]
@@ -401,6 +465,13 @@ impl Board {
         }))
     }
 
+    /// SAN形式の指し手を解析して対応する手を見つける
+    ///
+    /// "Nf3", "exd5", "O-O" などの標準代数記法を解析し、
+    /// 曖昧性解消を行って正しい手を特定する
+    ///
+    /// # 引数
+    /// * `t` - SAN形式の指し手文字列
     fn parse_san_and_find_move(&self, t: &str) -> Result<Move, String> {
         // SAN の記号除去（+, #, !? など）
         let mut s = t.replace("+", "").replace("#", "");
@@ -503,6 +574,12 @@ impl Board {
         })
     }
 
+    /// 指定された駒種が指定された位置に到達できる元位置の候補を列挙する
+    ///
+    /// # 引数
+    /// * `kind` - 駒の種類
+    /// * `to` - 目的地の盤面インデックス
+    /// * `is_capture` - 捕獲の手かどうか
     fn generate_reach(&self, kind: Kind, to: usize, is_capture: bool) -> Vec<usize> {
         // 「素直」な到達元探索：現在手番の自軍で、指定種が to に動ける from 候補（最小限のルール）
         let mut v = Vec::new();
@@ -519,7 +596,9 @@ impl Board {
         v
     }
 
-    // 完全な合法手生成
+    /// 現在の局面における全ての合法手を生成する
+    ///
+    /// 自玉がチェックに晒される手は除外される
     fn generate_legal_moves(&self) -> Vec<Move> {
         let mut moves = Vec::new();
 
@@ -547,6 +626,13 @@ impl Board {
             .collect()
     }
 
+    /// ポーンの合法手候補を生成する
+    ///
+    /// 前進、2マス前進、斜め取り、アンパッサン、昇格を含む
+    ///
+    /// # 引数
+    /// * `from` - ポーンの位置
+    /// * `moves` - 生成した手を追加するベクタ
     fn generate_pawn_moves(&self, from: usize, moves: &mut Vec<Move>) {
         let piece = self.piece_at(from).unwrap();
         let forward = if piece.color == Color::White { 1 } else { -1 };
@@ -641,6 +727,11 @@ impl Board {
         }
     }
 
+    /// ナイトの合法手候補を生成する
+    ///
+    /// # 引数
+    /// * `from` - ナイトの位置
+    /// * `moves` - 生成した手を追加するベクタ
     fn generate_knight_moves(&self, from: usize, moves: &mut Vec<Move>) {
         let f = file_of(from) as isize;
         let r = rank_of(from) as isize;
@@ -686,6 +777,12 @@ impl Board {
         }
     }
 
+    /// 長距離駒（ビショップ、ルーク、クイーン）の合法手候補を生成する
+    ///
+    /// # 引数
+    /// * `from` - 駒の位置
+    /// * `directions` - 移動方向のリスト（ファイル差、ランク差）
+    /// * `moves` - 生成した手を追加するベクタ
     fn generate_sliding_moves(
         &self,
         from: usize,
@@ -733,16 +830,31 @@ impl Board {
         }
     }
 
+    /// ビショップの合法手候補を生成する
+    ///
+    /// # 引数
+    /// * `from` - ビショップの位置
+    /// * `moves` - 生成した手を追加するベクタ
     fn generate_bishop_moves(&self, from: usize, moves: &mut Vec<Move>) {
         let diagonals = [(-1, -1), (-1, 1), (1, -1), (1, 1)];
         self.generate_sliding_moves(from, &diagonals, moves);
     }
 
+    /// ルークの合法手候補を生成する
+    ///
+    /// # 引数
+    /// * `from` - ルークの位置
+    /// * `moves` - 生成した手を追加するベクタ
     fn generate_rook_moves(&self, from: usize, moves: &mut Vec<Move>) {
         let orthogonals = [(-1, 0), (1, 0), (0, -1), (0, 1)];
         self.generate_sliding_moves(from, &orthogonals, moves);
     }
 
+    /// クイーンの合法手候補を生成する
+    ///
+    /// # 引数
+    /// * `from` - クイーンの位置
+    /// * `moves` - 生成した手を追加するベクタ
     fn generate_queen_moves(&self, from: usize, moves: &mut Vec<Move>) {
         let all_directions = [
             (-1, -1),
@@ -757,6 +869,13 @@ impl Board {
         self.generate_sliding_moves(from, &all_directions, moves);
     }
 
+    /// キングの合法手候補を生成する
+    ///
+    /// 通常の移動に加えてキャスリングも含む
+    ///
+    /// # 引数
+    /// * `from` - キングの位置
+    /// * `moves` - 生成した手を追加するベクタ
     fn generate_king_moves(&self, from: usize, moves: &mut Vec<Move>) {
         let f = file_of(from) as isize;
         let r = rank_of(from) as isize;
@@ -846,6 +965,12 @@ impl Board {
         }
     }
 
+    /// キングサイドキャスリングが可能かチェックする
+    ///
+    /// 経路が空で、キングの通過マスが攻撃されていないことを確認
+    ///
+    /// # 引数
+    /// * `color` - キャスリングする側の色
     fn can_castle_kingside(&self, color: Color) -> bool {
         let rank = if color == Color::White { 0 } else { 7 };
         // f, g マスが空で、e, f, g が攻撃されていない
@@ -856,6 +981,12 @@ impl Board {
             && !self.is_square_attacked(idx(6, rank), Board::other(color))
     }
 
+    /// クイーンサイドキャスリングが可能かチェックする
+    ///
+    /// 経路が空で、キングの通過マスが攻撃されていないことを確認
+    ///
+    /// # 引数
+    /// * `color` - キャスリングする側の色
     fn can_castle_queenside(&self, color: Color) -> bool {
         let rank = if color == Color::White { 0 } else { 7 };
         // b, c, d マスが空で、c, d, e が攻撃されていない
@@ -867,6 +998,11 @@ impl Board {
             && !self.is_square_attacked(idx(4, rank), Board::other(color))
     }
 
+    /// 指定されたマスが指定された色の駒に攻撃されているかチェックする
+    ///
+    /// # 引数
+    /// * `square` - チェックするマス
+    /// * `by_color` - 攻撃側の色
     fn is_square_attacked(&self, square: usize, by_color: Color) -> bool {
         // 指定されたマスが指定された色の駒に攻撃されているかチェック
         for from in 0..64 {
@@ -879,6 +1015,11 @@ impl Board {
         false
     }
 
+    /// 指定された位置の駒が別の位置を攻撃できるかチェックする
+    ///
+    /// # 引数
+    /// * `from` - 攻撃元の位置
+    /// * `to` - 攻撃先の位置
     fn can_attack(&self, from: usize, to: usize) -> bool {
         if from == to {
             return false;
@@ -945,6 +1086,12 @@ impl Board {
         }
     }
 
+    /// 指し手が合法かどうかをチェックする
+    ///
+    /// 実際に手を指してみて、自玉がチェックに晒されないことを確認
+    ///
+    /// # 引数
+    /// * `m` - チェックする手
     fn is_legal_move(&self, m: Move) -> bool {
         // 手を実際に指してみてキングがチェックに晒されないかチェック
         let current_side = self.side;
@@ -959,6 +1106,10 @@ impl Board {
         }
     }
 
+    /// 指定された色のキングの位置を探す
+    ///
+    /// # 引数
+    /// * `color` - 探すキングの色
     fn find_king(&self, color: Color) -> Option<usize> {
         for i in 0..64 {
             if let Some(piece) = self.piece_at(i) {
@@ -970,7 +1121,10 @@ impl Board {
         None
     }
 
-    // 評価関数: 駒の価値に基づく局面評価
+    /// 局面を評価する
+    ///
+    /// 駒の価値の合計に基づいて評価値を計算する
+    /// 白側から見て正の値が有利、負の値が不利
     fn evaluate(&self) -> i32 {
         let mut score = 0;
 
@@ -995,7 +1149,9 @@ impl Board {
         score
     }
 
-    // チェックメイト・ステイルメイトの判定
+    /// チェックメイトかどうかを判定する
+    ///
+    /// 手番側のキングがチェックされており、合法手がない状態
     fn is_checkmate(&self) -> bool {
         if let Some(king_square) = self.find_king(self.side) {
             self.is_square_attacked(king_square, Board::other(self.side))
@@ -1005,6 +1161,9 @@ impl Board {
         }
     }
 
+    /// ステイルメイトかどうかを判定する
+    ///
+    /// 手番側のキングがチェックされておらず、合法手がない状態
     fn is_stalemate(&self) -> bool {
         if let Some(king_square) = self.find_king(self.side) {
             !self.is_square_attacked(king_square, Board::other(self.side))
@@ -1014,11 +1173,21 @@ impl Board {
         }
     }
 
+    /// ゲームが終了しているかを判定する
+    ///
+    /// チェックメイトまたはステイルメイトの場合に true
     fn is_game_over(&self) -> bool {
         self.is_checkmate() || self.is_stalemate()
     }
 
-    // Min-Max アルゴリズム
+    /// Min-Maxアルゴリズムで局面を評価する
+    ///
+    /// # 引数
+    /// * `depth` - 探索深度
+    /// * `maximizing` - 最大化側（白）の手番かどうか
+    ///
+    /// # 戻り値
+    /// 評価値（白側から見た値）
     fn minimax(&self, depth: u32, maximizing: bool) -> i32 {
         if depth == 0 || self.is_game_over() {
             if self.is_checkmate() {
@@ -1058,7 +1227,13 @@ impl Board {
         }
     }
 
-    // 最適手を探索
+    /// Min-Max探索で最適な手を見つける
+    ///
+    /// # 引数
+    /// * `depth` - 探索深度
+    ///
+    /// # 戻り値
+    /// 最適手（合法手がない場合はNone）
     fn find_best_move(&self, depth: u32) -> Option<Move> {
         let moves = self.generate_legal_moves();
         if moves.is_empty() {
@@ -1086,7 +1261,10 @@ impl Board {
         Some(best_move)
     }
 
-    // 指し手をSAN形式で出力
+    /// 指し手をSAN（標準代数記法）形式の文字列に変換する
+    ///
+    /// # 引数
+    /// * `m` - 変換する手
     fn move_to_san(&self, m: Move) -> String {
         if m.is_castle_kingside {
             return "O-O".to_string();
@@ -1159,6 +1337,15 @@ impl Board {
         san
     }
 
+    /// 2つのマス間の経路が空かチェックする
+    ///
+    /// 長距離駒（ビショップ、ルーク、クイーン）の移動可否判定に使用
+    ///
+    /// # 引数
+    /// * `from` - 開始位置
+    /// * `to` - 終了位置
+    /// * `df` - ファイル方向の移動量（-1, 0, 1）
+    /// * `dr` - ランク方向の移動量（-1, 0, 1）
     fn line_clear(&self, from: usize, to: usize, df: isize, dr: isize) -> bool {
         // from から to へ (df,dr) 方向に一直線で、途中が空か
         let mut f = file_of(from) as isize + df;
@@ -1177,6 +1364,14 @@ impl Board {
         false
     }
 
+    /// 駒が指定された位置に到達できるか素朴にチェックする
+    ///
+    /// 合法手判定は行わず、駒の動きのルールのみをチェック
+    ///
+    /// # 引数
+    /// * `from` - 駒の位置
+    /// * `to` - 目的地
+    /// * `is_capture` - 捕獲の手かどうか
     fn naive_can_reach(&self, from: usize, to: usize, is_capture: bool) -> bool {
         if from == to {
             return false;
@@ -1276,6 +1471,10 @@ impl Board {
     }
 }
 
+/// マスの文字列表記（"e4"など）を盤面インデックスに変換する
+///
+/// # 引数
+/// * `s` - マスの文字列表記（例: "a1", "e4", "h8"）
 fn parse_square(s: &str) -> Result<usize, String> {
     if s.len() != 2 {
         return Err(format!("Bad square '{}'", s));
@@ -1287,6 +1486,10 @@ fn parse_square(s: &str) -> Result<usize, String> {
     Ok(idx((b[0] - b'a') as usize, (b[1] - b'1') as usize))
 }
 
+/// メイン関数
+///
+/// 標準入力から棋譜を読み込み、AIが次の最善手を計算して出力する
+/// コマンドライン引数で探索深度を指定可能（デフォルト3）
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // コマンドライン引数: 探索深度（デフォルト3）
     let args: Vec<String> = env::args().collect();
