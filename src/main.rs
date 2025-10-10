@@ -1,5 +1,9 @@
 use clap::Parser;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::fs;
 use std::io::{self, Read};
+use std::path::PathBuf;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Color {
@@ -7,7 +11,7 @@ enum Color {
     Black,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 enum Kind {
     Pawn,
     Knight,
@@ -1486,6 +1490,62 @@ fn parse_square(s: &str) -> Result<usize, String> {
     Ok(idx((b[0] - b'a') as usize, (b[1] - b'1') as usize))
 }
 
+/// キャッシュ管理
+struct Cache {
+    cache_dir: PathBuf,
+}
+
+impl Cache {
+    /// キャッシュを初期化する
+    fn new() -> Self {
+        Cache {
+            cache_dir: PathBuf::from("/tmp/chess.cache"),
+        }
+    }
+
+    /// 入力文字列と深度からキャッシュキー（ハッシュ値）を生成する
+    fn generate_key(&self, input: &str, depth: u32) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(input.as_bytes());
+        hasher.update(depth.to_string().as_bytes());
+        format!("{:x}", hasher.finalize())
+    }
+
+    /// キャッシュファイルのパスを取得する
+    fn get_path(&self, cache_key: &str) -> PathBuf {
+        self.cache_dir.join(format!("{}.json", cache_key))
+    }
+
+    /// キャッシュから最善手を読み込む
+    fn read(&self, input: &str, depth: u32) -> Option<String> {
+        let key = self.generate_key(input, depth);
+        let path = self.get_path(&key);
+
+        if !path.exists() {
+            return None;
+        }
+
+        let content = fs::read_to_string(path).ok()?;
+        let result: serde_json::Value = serde_json::from_str(&content).ok()?;
+        result.get("best_move")?.as_str().map(|s| s.to_string())
+    }
+
+    /// キャッシュに最善手を書き込む
+    fn write(&self, input: &str, depth: u32, best_move: &str) -> std::io::Result<()> {
+        fs::create_dir_all(&self.cache_dir)?;
+
+        let key = self.generate_key(input, depth);
+        let path = self.get_path(&key);
+
+        let result = serde_json::json!({
+            "best_move": best_move,
+        });
+
+        let content = serde_json::to_string_pretty(&result)?;
+        fs::write(path, content)
+    }
+}
+
 /// コマンドライン引数
 #[derive(Parser, Debug)]
 #[command(author, version, about = "チェスAI - 標準入力から棋譜を読み込み、次の最善手を出力する", long_about = None)]
@@ -1537,20 +1597,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // AIが次の一手を考える
-    if let Some(best_move) = board.find_best_move(depth) {
-        let san = board.move_to_san(best_move);
-        println!("{}", san);
+    // キャッシュを初期化
+    let cache = Cache::new();
 
-        // 最善手を適用
-        board.make_move(best_move);
+    // キャッシュから結果を読み込む
+    let san = if let Some(cached_move) = cache.read(&buf, depth) {
+        eprintln!("; Using cached result");
+        cached_move
+    } else {
+        // AIが次の一手を考える
+        if let Some(best_move) = board.find_best_move(depth) {
+            let san = board.move_to_san(best_move);
+            // キャッシュに保存
+            if let Err(e) = cache.write(&buf, depth, &san) {
+                eprintln!("; Warning: Failed to write cache: {}", e);
+            }
+            san
+        } else {
+            eprintln!("No legal moves available");
+            return Err("No legal moves".into());
+        }
+    };
 
-        // コメント形式でボード状態を出力（最善手を打った後の盤面）
+    // 最善手を出力
+    println!("{}", san);
+
+    // 最善手を適用して盤面を表示
+    if let Ok(()) = board.parse_and_play_token(&san) {
         println!(";");
         board.print_as_comment();
-    } else {
-        eprintln!("No legal moves available");
-        return Err("No legal moves".into());
     }
 
     Ok(())
