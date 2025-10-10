@@ -1493,6 +1493,10 @@ struct Args {
     /// 探索深度（大きいほど強いが遅い）
     #[arg(short, long, default_value_t = 3)]
     depth: u32,
+
+    /// 盤面を表示するだけで最善手を計算しない
+    #[arg(short, long)]
+    print_only: bool,
 }
 
 /// メイン関数
@@ -1527,12 +1531,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    // print_only モードなら盤面を表示して終了
+    if args.print_only {
+        board.print_as_comment();
+        return Ok(());
+    }
+
     // AIが次の一手を考える
     if let Some(best_move) = board.find_best_move(depth) {
         let san = board.move_to_san(best_move);
         println!("{}", san);
 
-        // コメント形式でボード状態を出力
+        // 最善手を適用
+        board.make_move(best_move);
+
+        // コメント形式でボード状態を出力（最善手を打った後の盤面）
         println!(";");
         board.print_as_comment();
     } else {
