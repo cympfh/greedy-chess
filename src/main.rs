@@ -1,4 +1,4 @@
-use std::env;
+use clap::Parser;
 use std::io::{self, Read};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -1486,18 +1486,22 @@ fn parse_square(s: &str) -> Result<usize, String> {
     Ok(idx((b[0] - b'a') as usize, (b[1] - b'1') as usize))
 }
 
+/// コマンドライン引数
+#[derive(Parser, Debug)]
+#[command(author, version, about = "チェスAI - 標準入力から棋譜を読み込み、次の最善手を出力する", long_about = None)]
+struct Args {
+    /// 探索深度（大きいほど強いが遅い）
+    #[arg(short, long, default_value_t = 3)]
+    depth: u32,
+}
+
 /// メイン関数
 ///
 /// 標準入力から棋譜を読み込み、AIが次の最善手を計算して出力する
 /// コマンドライン引数で探索深度を指定可能（デフォルト3）
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // コマンドライン引数: 探索深度（デフォルト3）
-    let args: Vec<String> = env::args().collect();
-    let depth = if args.len() > 1 {
-        args[1].parse::<u32>().unwrap_or(3)
-    } else {
-        3
-    };
+    let args = Args::parse();
+    let depth = args.depth;
 
     // 標準入力から棋譜（空白区切りの手）を読み、順次適用
     let mut buf = String::new();
