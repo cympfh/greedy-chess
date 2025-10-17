@@ -1,8 +1,10 @@
 mod board;
 mod cache;
+mod opening;
 
 use board::Board;
 use cache::Cache;
+use opening::OpeningBook;
 use clap::Parser;
 use std::io::{self, Read};
 
@@ -57,28 +59,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
-    // キャッシュを初期化
-    let cache = Cache::new();
+    // オープニングブックを初期化
+    let opening_book = OpeningBook::new();
 
-    // 盤面をシリアライズしてキャッシュキーを生成
-    let board_state = board.serialize();
-
-    // キャッシュから結果を読み込む
-    let san = if let Some(cached_move) = cache.read(&board_state, depth) {
-        eprintln!("; Using cached result");
-        cached_move
+    // オープニングブックから手を検索（現在の盤面を渡す）
+    let san = if let Some(opening_move) = opening_book.lookup(&board) {
+        eprintln!("; Using opening book");
+        opening_move
     } else {
-        // AIが次の一手を考える
-        if let Some(best_move) = board.find_best_move(depth) {
-            let san = board.move_to_san(best_move);
-            // キャッシュに保存
-            if let Err(e) = cache.write(&board_state, depth, &san) {
-                eprintln!("; Warning: Failed to write cache: {}", e);
-            }
-            san
+        // キャッシュを初期化
+        let cache = Cache::new();
+
+        // 盤面をシリアライズしてキャッシュキーを生成
+        let board_state = board.serialize();
+
+        // キャッシュから結果を読み込む
+        if let Some(cached_move) = cache.read(&board_state, depth) {
+            eprintln!("; Using cached result");
+            cached_move
         } else {
-            eprintln!("No legal moves available");
-            return Err("No legal moves".into());
+            // AIが次の一手を考える
+            if let Some(best_move) = board.find_best_move(depth) {
+                let san = board.move_to_san(best_move);
+                // キャッシュに保存
+                if let Err(e) = cache.write(&board_state, depth, &san) {
+                    eprintln!("; Warning: Failed to write cache: {}", e);
+                }
+                san
+            } else {
+                eprintln!("No legal moves available");
+                return Err("No legal moves".into());
+            }
         }
     };
 
