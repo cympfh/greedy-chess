@@ -5,13 +5,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-enum Color {
+pub enum Color {
     White,
     Black,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-enum Kind {
+pub enum Kind {
     Pawn,
     Knight,
     Bishop,
@@ -21,9 +21,9 @@ enum Kind {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-struct Piece {
-    kind: Kind,
-    color: Color,
+pub struct Piece {
+    pub kind: Kind,
+    pub color: Color,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -140,7 +140,7 @@ impl Board {
     ///
     /// # 引数
     /// * `i` - 盤面インデックス (0..63)
-    fn piece_at(&self, i: usize) -> Option<Piece> {
+    pub fn piece_at(&self, i: usize) -> Option<Piece> {
         self.sq[i]
     }
     /// 指定された位置に駒を配置する
@@ -150,6 +150,26 @@ impl Board {
     /// * `p` - 配置する駒（Noneの場合は駒を取り除く）
     fn set_piece(&mut self, i: usize, p: Option<Piece>) {
         self.sq[i] = p;
+    }
+
+    /// 白のキングサイドキャスリング権を取得
+    pub fn castle_wk(&self) -> bool {
+        self.castle_wk
+    }
+
+    /// 白のクイーンサイドキャスリング権を取得
+    pub fn castle_wq(&self) -> bool {
+        self.castle_wq
+    }
+
+    /// 黒のキングサイドキャスリング権を取得
+    pub fn castle_bk(&self) -> bool {
+        self.castle_bk
+    }
+
+    /// 黒のクイーンサイドキャスリング権を取得
+    pub fn castle_bq(&self) -> bool {
+        self.castle_bq
     }
 
     /// 盤面をコメント形式で標準出力に表示する
@@ -1124,33 +1144,6 @@ impl Board {
         None
     }
 
-    /// 局面を評価する
-    ///
-    /// 駒の価値の合計に基づいて評価値を計算する
-    /// 白側から見て正の値が有利、負の値が不利
-    fn evaluate(&self) -> i32 {
-        let mut score = 0;
-
-        for i in 0..64 {
-            if let Some(piece) = self.piece_at(i) {
-                let value = match piece.kind {
-                    Kind::Pawn => 1,
-                    Kind::Knight => 3,
-                    Kind::Bishop => 3,
-                    Kind::Rook => 5,
-                    Kind::Queen => 9,
-                    Kind::King => 999,
-                };
-
-                match piece.color {
-                    Color::White => score += value,
-                    Color::Black => score -= value,
-                }
-            }
-        }
-
-        score
-    }
 
     /// チェックメイトかどうかを判定する
     ///
@@ -1380,7 +1373,7 @@ impl Board {
             if self.is_stalemate() {
                 return Some(0);
             }
-            return Some(self.evaluate());
+            return Some(crate::evaluate::evaluate(self));
         }
 
         let moves = self.generate_legal_moves();

@@ -1,13 +1,35 @@
 mod board;
 mod cache;
+mod evaluate;
 mod opening;
 
 use board::Board;
 use cache::Cache;
-use opening::OpeningBook;
 use clap::Parser;
+use opening::OpeningBook;
 use std::io::{self, Read};
 use std::time::Duration;
+
+/// 評価関数の種類
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvaluatorType {
+    /// デフォルト: Piece-Square Tables使用
+    Advanced,
+    /// クラシック: 駒の価値のみで評価
+    Classic,
+}
+
+impl std::str::FromStr for EvaluatorType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "advanced" => Ok(EvaluatorType::Advanced),
+            "classic" => Ok(EvaluatorType::Classic),
+            _ => Err(format!("Unknown evaluator type: {}", s)),
+        }
+    }
+}
 
 /// コマンドライン引数
 #[derive(Parser, Debug)]
@@ -24,6 +46,10 @@ struct Args {
     /// 並列探索に使用するスレッド数（指定しない場合は直列実行）
     #[arg(short = 'n', long)]
     threads: Option<usize>,
+
+    /// 評価関数の種類 (default, classic)
+    #[arg(short = 'e', long, default_value = "advanced")]
+    evaluate: EvaluatorType,
 }
 
 /// メイン関数
@@ -32,6 +58,9 @@ struct Args {
 /// コマンドライン引数でタイムアウトを指定可能（デフォルト5秒）
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+
+    // 評価関数の種類を設定
+    evaluate::set_evaluator_type(args.evaluate);
 
     // 標準入力から棋譜（空白区切りの手）を読み、順次適用
     let mut buf = String::new();
@@ -78,7 +107,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let board_state = board.serialize();
 
         // キャッシュから結果を読み込む
-        if let Some(cached_move) = cache.read(&board_state, args.timeout, args.threads) {
+        if let Some(cached_move) =
+            cache.read(&board_state, args.timeout, args.threads, args.evaluate)
+        {
             eprintln!("; Using cached result");
             cached_move
         } else {
@@ -89,7 +120,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     args.timeout, n
                 );
             } else {
-                eprintln!("; Using iterative deepening with timeout {}s (serial)", args.timeout);
+                eprintln!(
+                    "; Using iterative deepening with timeout {}s (serial)",
+                    args.timeout
+                );
             }
             let timeout = Duration::from_secs(args.timeout);
             let san = if let Some(best_move) = board.find_best_move(timeout, args.threads) {
@@ -100,7 +134,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             // キャッシュに保存
-            if let Err(e) = cache.write(&board_state, args.timeout, args.threads, &san) {
+            if let Err(e) = cache.write(
+                &board_state,
+                args.timeout,
+                args.threads,
+                args.evaluate,
+                &san,
+            ) {
                 eprintln!("; Warning: Failed to write cache: {}", e);
             }
             san

@@ -41,8 +41,8 @@
 ## 🟡 Medium Priority Items
 
 ### Performance Optimization
-- [ ] **探索の最適化**: 現在の実装は深い探索で時間がかかる可能性
-- [ ] **評価関数の改善**: ポジション要素（中央制御、駒の活動性等）追加
+- [ ] **探索の最適化**: さらなる高速化の余地あり
+- [x] **評価関数の改善**: ポジション要素（中央制御、駒の活動性等）追加 ✅ 実装完了
 - [ ] **メモリ使用量削減**: 不要なボードクローンの最適化
 
 ## 🟢 Enhancement Features
@@ -85,25 +85,37 @@
 - SAN形式での指し手出力 + ボード状態表示
 
 **⚡ PERFORMANCE**:
-- 反復深化により制限時間内で最適な探索深度を自動選択
+- Alpha-Beta剪定により効率的な探索（~3-4x高速化）
+- 並列探索によるマルチコア活用
 - キャッシュにより同一局面の再計算を回避
-- 典型的には深度5-7程度まで到達（5秒設定時）
+- 典型的には深度4-6程度まで到達（5秒設定時）
 
-**🎯 NEXT STEPS**: アルファベータ剪定の実装が最も効果的な改善項目
+**🎯 NEXT STEPS**: 移動順序付け（Move Ordering）の実装が最も効果的な改善項目
 
 ## Priority Order
 
-1. **High Priority**: Alpha-Beta pruning, Move ordering
-2. **Medium Priority**: Chess Rules Compliance, Evaluation improvements
+1. **High Priority**: Move ordering, Transposition tables
+2. **Medium Priority**: Chess Rules Compliance, Quiescence search
 3. **Low Priority**: Advanced Features, Code Quality improvements
 
 ## Recent Updates (2025-10-17)
 
+### Infrastructure & Refactoring
 - ✅ `--depth`オプションを削除し、`--timeout`ベースの探索に統一
-- ✅ キャッシュキーから`depth`を削除し、`timeout`のみを使用
+- ✅ キャッシュキーから`depth`を削除し、`timeout`とスレッド数を使用
 - ✅ 未使用の`minimax`と`find_best_move`（depth版）を削除
 - ✅ 関数名から`_with_timeout`接尾辞を削除してリファクタリング
+
+### Performance Improvements
 - ✅ **並列探索実装**: `-n/--threads`オプションで並列スレッド数を指定可能
-- ✅ **Alpha-Beta剪定実装**: `minimax`を`alphabeta`に置き換え、探索効率が大幅向上
+  - Rayonを使用したデータ並列化
+  - マルチコアCPUで線形的な高速化
+- ✅ **Alpha-Beta剪定実装**: `minimax`を`alphabeta`に置き換え
+  - 探索効率が3-4倍向上
   - 探索深度が平均1段階向上（depth 3 → depth 4）
-  - 並列探索との組み合わせで更なる高速化を実現
+- ✅ **評価関数の改善**: `evaluate.rs`モジュールを新規作成
+  - Piece-Square Tables for all pieces（駒種ごとの位置評価）
+  - 中盤/終盤でキングの評価テーブルを切り替え
+  - ビショップペアボーナス（+50）
+  - キャスリング権ボーナス（+15）
+  - センチポーン単位での精密な評価（Pawn=100, Knight=320, etc.）

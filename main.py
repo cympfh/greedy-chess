@@ -232,7 +232,9 @@ class ChessBoard:
         except Exception:
             return False
 
-    def get_best_move(self, timeout: int, threads: int = 1) -> str | None:
+    def get_best_move(
+        self, timeout: int, threads: int = 1, evaluator: str = "default"
+    ) -> str | None:
         """Rust AIから最善手を取得（並列探索）"""
         kifu: str = self.get_kifu_string()
 
@@ -240,6 +242,7 @@ class ChessBoard:
         cmd = ["cargo", "run", "--release", "--", "-t", str(timeout)]
         if threads > 1:
             cmd.extend(["-n", str(threads)])
+        cmd.extend(["-e", evaluator])
 
         process = subprocess.Popen(
             cmd,
@@ -251,7 +254,7 @@ class ChessBoard:
         )
         try:
             stdout, stderr = process.communicate(input=kifu, timeout=timeout + 1.0)
-            print("# get_best_move")
+            print(f"# get_best_move (evaluator={evaluator})")
             print(stdout)
             print(stderr)
             if process.returncode == 0:
@@ -479,13 +482,17 @@ def main() -> None:
         st.session_state.ai_threads = ai_threads
 
         current_kifu: str = chess_board.get_kifu_string()
-        cache_key = f"{current_kifu}_t{ai_timeout}_n{ai_threads}"
+
+        ai_eval = st.toggle("Advanced Evaluator", value=True)
+        ai_eval_name = "advanced" if ai_eval else "classic"
+        cache_key = f"{current_kifu}_t{ai_timeout}_n{ai_threads}_{ai_eval_name}"
+
         result = None
         if cache_key in st.session_state.best_move_cache:
             result = st.session_state.best_move_cache[cache_key]
         else:
-            with st.spinner("AIが思考中..."):
-                result = chess_board.get_best_move(ai_timeout, ai_threads)
+            with st.spinner(f"AI思考中 ({ai_eval_name})..."):
+                result = chess_board.get_best_move(ai_timeout, ai_threads, ai_eval_name)
                 st.session_state.best_move_cache[cache_key] = result
         if result:
             st.success(f"**{result}**")

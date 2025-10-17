@@ -16,14 +16,16 @@ impl Cache {
         }
     }
 
-    /// 盤面状態、タイムアウト、スレッド数からキャッシュキー（ハッシュ値）を生成する
-    fn generate_key(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>) -> String {
+    /// 盤面状態、タイムアウト、スレッド数、評価関数からキャッシュキー（ハッシュ値）を生成する
+    fn generate_key(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>, evaluator: crate::EvaluatorType) -> String {
         let mut hasher = Sha256::new();
         hasher.update(board_state.as_bytes());
         hasher.update(b"timeout:");
         hasher.update(timeout_secs.to_string().as_bytes());
         hasher.update(b"threads:");
         hasher.update(threads.unwrap_or(0).to_string().as_bytes());
+        hasher.update(b"evaluator:");
+        hasher.update(format!("{:?}", evaluator).as_bytes());
         format!("{:x}", hasher.finalize())
     }
 
@@ -38,8 +40,9 @@ impl Cache {
     /// * `board_state` - 正規化された盤面状態の文字列
     /// * `timeout_secs` - タイムアウト（秒単位）
     /// * `threads` - スレッド数（Noneの場合は直列実行）
-    pub fn read(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>) -> Option<String> {
-        let key = self.generate_key(board_state, timeout_secs, threads);
+    /// * `evaluator` - 評価関数の種類
+    pub fn read(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>, evaluator: crate::EvaluatorType) -> Option<String> {
+        let key = self.generate_key(board_state, timeout_secs, threads, evaluator);
         let path = self.get_path(&key);
 
         if !path.exists() {
@@ -57,11 +60,12 @@ impl Cache {
     /// * `board_state` - 正規化された盤面状態の文字列
     /// * `timeout_secs` - タイムアウト（秒単位）
     /// * `threads` - スレッド数（Noneの場合は直列実行）
+    /// * `evaluator` - 評価関数の種類
     /// * `best_move` - 最善手（SAN形式）
-    pub fn write(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>, best_move: &str) -> std::io::Result<()> {
+    pub fn write(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>, evaluator: crate::EvaluatorType, best_move: &str) -> std::io::Result<()> {
         fs::create_dir_all(&self.cache_dir)?;
 
-        let key = self.generate_key(board_state, timeout_secs, threads);
+        let key = self.generate_key(board_state, timeout_secs, threads, evaluator);
         let path = self.get_path(&key);
 
         let result = serde_json::json!({
