@@ -232,11 +232,17 @@ class ChessBoard:
         except Exception:
             return False
 
-    def get_best_move(self, timeout: int) -> str | None:
+    def get_best_move(self, timeout: int, threads: int = 1) -> str | None:
         """Rust AIから最善手を取得（並列探索）"""
         kifu: str = self.get_kifu_string()
+
+        # コマンドライン引数を構築
+        cmd = ["cargo", "run", "--release", "--", "-t", str(timeout)]
+        if threads > 1:
+            cmd.extend(["-n", str(threads)])
+
         process = subprocess.Popen(
-            ["cargo", "run", "--release", "--", "-t", str(timeout)],
+            cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -448,6 +454,9 @@ def main() -> None:
         if "ai_timeout" not in st.session_state:
             st.session_state.ai_timeout = 3
 
+        if "ai_threads" not in st.session_state:
+            st.session_state.ai_threads = 1
+
         ai_timeout = st.slider(
             "AI思考時間の上限を選択 (秒)",
             min_value=1,
@@ -458,14 +467,25 @@ def main() -> None:
         )
         st.session_state.ai_timeout = ai_timeout
 
+        ai_threads = st.slider(
+            "並列探索スレッド数",
+            min_value=1,
+            max_value=16,
+            value=st.session_state.ai_threads,
+            step=1,
+            key="ai_threads_slider",
+            help="1: 直列実行、2以上: 並列実行",
+        )
+        st.session_state.ai_threads = ai_threads
+
         current_kifu: str = chess_board.get_kifu_string()
-        cache_key = f"{current_kifu}_t{ai_timeout}"
+        cache_key = f"{current_kifu}_t{ai_timeout}_n{ai_threads}"
         result = None
         if cache_key in st.session_state.best_move_cache:
             result = st.session_state.best_move_cache[cache_key]
         else:
             with st.spinner("AIが思考中..."):
-                result = chess_board.get_best_move(ai_timeout)
+                result = chess_board.get_best_move(ai_timeout, ai_threads)
                 st.session_state.best_move_cache[cache_key] = result
         if result:
             st.success(f"**{result}**")

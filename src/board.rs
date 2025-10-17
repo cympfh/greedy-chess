@@ -1,4 +1,7 @@
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -1187,10 +1190,11 @@ impl Board {
     ///
     /// # 引数
     /// * `timeout` - 探索の制限時間
+    /// * `num_threads` - 並列探索に使用するスレッド数（Noneの場合は直列実行）
     ///
     /// # 戻り値
     /// 最適手（合法手がない場合はNone）
-    pub fn find_best_move(&self, timeout: Duration) -> Option<Move> {
+    pub fn find_best_move(&self, timeout: Duration, num_threads: Option<usize>) -> Option<Move> {
         let moves = self.generate_legal_moves();
         if moves.is_empty() {
             return None;
@@ -1200,18 +1204,30 @@ impl Board {
         let mut best_move = moves[0];
         let mut current_depth = 1;
 
+        // 並列化設定
+        if let Some(n) = num_threads {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .build_global()
+                .ok();
+        }
+
         loop {
             // 各深度での探索
-            if let Some(result) = self.search_at_depth(current_depth, start_time, timeout) {
+            if let Some(result) = self.search_at_depth(current_depth, start_time, timeout, num_threads.is_some()) {
                 best_move = result;
-                eprintln!("; Completed depth {} (elapsed: {:.2}s)",
-                         current_depth,
-                         start_time.elapsed().as_secs_f64());
+                eprintln!(
+                    "; Completed depth {} (elapsed: {:.2}s)",
+                    current_depth,
+                    start_time.elapsed().as_secs_f64()
+                );
             } else {
                 // タイムアウトした場合は前回の結果を返す
-                eprintln!("; Timeout at depth {} (elapsed: {:.2}s)",
-                         current_depth,
-                         start_time.elapsed().as_secs_f64());
+                eprintln!(
+                    "; Timeout at depth {} (elapsed: {:.2}s)",
+                    current_depth,
+                    start_time.elapsed().as_secs_f64()
+                );
                 break;
             }
 
@@ -1233,39 +1249,89 @@ impl Board {
     /// * `depth` - 探索深度
     /// * `start_time` - 探索開始時刻
     /// * `timeout` - 探索の制限時間
+    /// * `parallel` - 並列実行するかどうか
     ///
     /// # 戻り値
     /// タイムアウト前に完了した場合は最適手、タイムアウトした場合はNone
-    fn search_at_depth(&self, depth: u32, start_time: Instant, timeout: Duration) -> Option<Move> {
+    fn search_at_depth(&self, depth: u32, start_time: Instant, timeout: Duration, parallel: bool) -> Option<Move> {
         let moves = self.generate_legal_moves();
         if moves.is_empty() {
             return None;
         }
 
         let maximizing = self.side == Color::White;
-        let mut best_move = moves[0];
-        let mut best_eval = if maximizing { -100001 } else { 100001 };
 
-        for m in moves {
+        if parallel {
+            // 並列探索
+            let timed_out = Arc::new(AtomicBool::new(false));
+
+            // 各手の評価を並列実行
+            let results: Vec<_> = moves
+                .par_iter()
+                .map(|&m| {
+                    // タイムアウトチェック
+                    if start_time.elapsed() >= timeout || timed_out.load(Ordering::Relaxed) {
+                        timed_out.store(true, Ordering::Relaxed);
+                        return None;
+                    }
+
+                    let mut board_copy = self.clone();
+                    board_copy.make_move(m);
+                    let eval = board_copy.minimax(depth - 1, !maximizing, start_time, timeout)?;
+                    Some((m, eval))
+                })
+                .collect();
+
             // タイムアウトチェック
-            if start_time.elapsed() >= timeout {
+            if timed_out.load(Ordering::Relaxed) {
                 return None;
             }
 
-            let mut board_copy = self.clone();
-            board_copy.make_move(m);
-            let eval = board_copy.minimax(depth - 1, !maximizing, start_time, timeout)?;
+            // 最良の手を選択
+            let mut best_move = moves[0];
+            let mut best_eval = if maximizing { -100001 } else { 100001 };
 
-            if maximizing && eval > best_eval {
-                best_eval = eval;
-                best_move = m;
-            } else if !maximizing && eval < best_eval {
-                best_eval = eval;
-                best_move = m;
+            for result in results {
+                if let Some((m, eval)) = result {
+                    if maximizing && eval > best_eval {
+                        best_eval = eval;
+                        best_move = m;
+                    } else if !maximizing && eval < best_eval {
+                        best_eval = eval;
+                        best_move = m;
+                    }
+                } else {
+                    return None; // タイムアウト
+                }
             }
-        }
 
-        Some(best_move)
+            Some(best_move)
+        } else {
+            // 直列探索（既存のロジック）
+            let mut best_move = moves[0];
+            let mut best_eval = if maximizing { -100001 } else { 100001 };
+
+            for m in moves {
+                // タイムアウトチェック
+                if start_time.elapsed() >= timeout {
+                    return None;
+                }
+
+                let mut board_copy = self.clone();
+                board_copy.make_move(m);
+                let eval = board_copy.minimax(depth - 1, !maximizing, start_time, timeout)?;
+
+                if maximizing && eval > best_eval {
+                    best_eval = eval;
+                    best_move = m;
+                } else if !maximizing && eval < best_eval {
+                    best_eval = eval;
+                    best_move = m;
+                }
+            }
+
+            Some(best_move)
+        }
     }
 
     /// Min-Maxアルゴリズムで局面を評価する
@@ -1278,7 +1344,13 @@ impl Board {
     ///
     /// # 戻り値
     /// タイムアウト前に完了した場合は評価値、タイムアウトした場合はNone
-    fn minimax(&self, depth: u32, maximizing: bool, start_time: Instant, timeout: Duration) -> Option<i32> {
+    fn minimax(
+        &self,
+        depth: u32,
+        maximizing: bool,
+        start_time: Instant,
+        timeout: Duration,
+    ) -> Option<i32> {
         // タイムアウトチェック
         if start_time.elapsed() >= timeout {
             return None;

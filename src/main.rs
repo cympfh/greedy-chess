@@ -20,6 +20,10 @@ struct Args {
     /// 盤面を表示するだけで最善手を計算しない
     #[arg(short, long)]
     print_only: bool,
+
+    /// 並列探索に使用するスレッド数（指定しない場合は直列実行）
+    #[arg(short = 'n', long)]
+    threads: Option<usize>,
 }
 
 /// メイン関数
@@ -79,9 +83,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cached_move
         } else {
             // 反復深化探索を実行
-            eprintln!("; Using iterative deepening with timeout {}s", args.timeout);
+            if let Some(n) = args.threads {
+                eprintln!(
+                    "; Using iterative deepening with timeout {}s (parallel, {} threads)",
+                    args.timeout, n
+                );
+            } else {
+                eprintln!("; Using iterative deepening with timeout {}s (serial)", args.timeout);
+            }
             let timeout = Duration::from_secs(args.timeout);
-            let san = if let Some(best_move) = board.find_best_move(timeout) {
+            let san = if let Some(best_move) = board.find_best_move(timeout, args.threads) {
                 board.move_to_san(best_move)
             } else {
                 eprintln!("No legal moves available");
