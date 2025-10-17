@@ -7,14 +7,15 @@ use cache::Cache;
 use opening::OpeningBook;
 use clap::Parser;
 use std::io::{self, Read};
+use std::time::Duration;
 
 /// コマンドライン引数
 #[derive(Parser, Debug)]
 #[command(author, version, about = "チェスAI - 標準入力から棋譜を読み込み、次の最善手を出力する", long_about = None)]
 struct Args {
-    /// 探索深度（大きいほど強いが遅い）
-    #[arg(short, long, default_value_t = 3)]
-    depth: u32,
+    /// タイムアウト（秒単位）。指定された時間内に反復深化探索を行う
+    #[arg(short = 't', long, default_value_t = 5)]
+    timeout: u64,
 
     /// 盤面を表示するだけで最善手を計算しない
     #[arg(short, long)]
@@ -24,10 +25,9 @@ struct Args {
 /// メイン関数
 ///
 /// 標準入力から棋譜を読み込み、AIが次の最善手を計算して出力する
-/// コマンドライン引数で探索深度を指定可能（デフォルト3）
+/// コマンドライン引数でタイムアウトを指定可能（デフォルト5秒）
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
-    let depth = args.depth;
 
     // 標準入力から棋譜（空白区切りの手）を読み、順次適用
     let mut buf = String::new();
@@ -74,22 +74,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let board_state = board.serialize();
 
         // キャッシュから結果を読み込む
-        if let Some(cached_move) = cache.read(&board_state, depth) {
+        if let Some(cached_move) = cache.read(&board_state, args.timeout) {
             eprintln!("; Using cached result");
             cached_move
         } else {
-            // AIが次の一手を考える
-            if let Some(best_move) = board.find_best_move(depth) {
-                let san = board.move_to_san(best_move);
-                // キャッシュに保存
-                if let Err(e) = cache.write(&board_state, depth, &san) {
-                    eprintln!("; Warning: Failed to write cache: {}", e);
-                }
-                san
+            // 反復深化探索を実行
+            eprintln!("; Using iterative deepening with timeout {}s", args.timeout);
+            let timeout = Duration::from_secs(args.timeout);
+            let san = if let Some(best_move) = board.find_best_move(timeout) {
+                board.move_to_san(best_move)
             } else {
                 eprintln!("No legal moves available");
                 return Err("No legal moves".into());
+            };
+
+            // キャッシュに保存
+            if let Err(e) = cache.write(&board_state, args.timeout, &san) {
+                eprintln!("; Warning: Failed to write cache: {}", e);
             }
+            san
         }
     };
 

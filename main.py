@@ -232,11 +232,11 @@ class ChessBoard:
         except Exception:
             return False
 
-    def get_best_move(self, depth: int) -> str | None:
+    def get_best_move(self, timeout: int) -> str | None:
         """Rust AIから最善手を取得（並列探索）"""
         kifu: str = self.get_kifu_string()
         process = subprocess.Popen(
-            ["cargo", "run", "--release", "--", "-d", str(depth)],
+            ["cargo", "run", "--release", "--", "-t", str(timeout)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -244,8 +244,7 @@ class ChessBoard:
             cwd=os.path.dirname(os.path.abspath(__file__)),
         )
         try:
-            timeout = 10.0
-            stdout, stderr = process.communicate(input=kifu, timeout=timeout)
+            stdout, stderr = process.communicate(input=kifu, timeout=timeout + 1.0)
             print("# get_best_move")
             print(stdout)
             print(stderr)
@@ -446,32 +445,27 @@ def main() -> None:
     with col2:
         st.subheader("🤖 AI推奨手")
 
-        # depthの初期化
-        if "depth" not in st.session_state:
-            st.session_state.depth = 3
+        if "ai_timeout" not in st.session_state:
+            st.session_state.ai_timeout = 3
 
-        depth = st.slider(
-            "探索深さの上限を選択",
-            min_value=3,
-            max_value=5,
-            value=st.session_state.depth,
+        ai_timeout = st.slider(
+            "AI思考時間の上限を選択 (秒)",
+            min_value=1,
+            max_value=30,
+            value=st.session_state.ai_timeout,
             step=1,
-            key="depth_slider",
+            key="ai_timeout_slider",
         )
-
-        # スライダーの値を保存
-        st.session_state.depth = depth
-        if depth >= 5:
-            st.warning("Too deep: 時間がかかる可能性")
+        st.session_state.ai_timeout = ai_timeout
 
         current_kifu: str = chess_board.get_kifu_string()
-        cache_key = f"{current_kifu}_d{depth}"
+        cache_key = f"{current_kifu}_t{ai_timeout}"
         result = None
         if cache_key in st.session_state.best_move_cache:
             result = st.session_state.best_move_cache[cache_key]
         else:
             with st.spinner("AIが思考中..."):
-                result = chess_board.get_best_move(depth)
+                result = chess_board.get_best_move(ai_timeout)
                 st.session_state.best_move_cache[cache_key] = result
         if result:
             st.success(f"**{result}**")

@@ -1,12 +1,15 @@
 # TODO.md
 
-## ✅ Completed Core Features (2024-10-09)
+## ✅ Completed Core Features
 
 ### Core AI Algorithm
-- [x] **Min-Max探索アルゴリズム実装**: 完全なmin-maxアルゴリズム実装済み
-- [x] **コマンドライン引数処理**: 探索深度nをコマンドライン引数から受け取る機能（デフォルト3）
+- [x] **Min-Max探索アルゴリズム実装**: 完全なmin-maxアルゴリズム実装済み（タイムアウト付き）
+- [x] **反復深化探索**: 時間制限内で可能な限り深く探索する反復深化実装済み
+- [x] **コマンドライン引数処理**: タイムアウトをコマンドライン引数から受け取る機能（デフォルト5秒）
 - [x] **評価関数実装**: 駒の価値に基づく局面評価関数（P:1, N/B:3, R:5, Q:9, K:999）
 - [x] **次の一手生成**: SAN形式でAIの指し手を出力 + コメント形式でボード表示
+- [x] **キャッシュシステム**: 盤面状態とタイムアウトをキーにした結果キャッシュ
+- [x] **オープニングブック**: 基本的なオープニングムーブのハードコーディング
 
 ### Legal Move Generation
 - [x] **合法手生成**: 全駒種の完全な合法手生成システム実装
@@ -25,14 +28,10 @@
 
 ## 🔴 High Priority Remaining Items
 
-### Opening Book
-- [ ] **基本的なオープニングブック**: よくあるオープニングムーブを10から20種類ほどハードコーディングしておいてそれを使う
-
 ### Algorithm Improvements
 - [ ] **アルファベータ剪定**: Min-maxの高速化（現在はfull tree search）
-- [ ] **移動順序付け**: より効率的な探索のための手の順序付け
-- [ ] **置換表**: 既に評価した局面のキャッシュ（メモ化）
-- [ ] **反復深化**: 時間制限内での最適解探索
+- [ ] **移動順序付け**: より効率的な探索のための手の順序付け（MVV-LVA等）
+- [ ] **静止探索（Quiescence Search）**: 取り合いが続く局面での評価精度向上
 
 ### Chess Rules Compliance
 - [ ] **三回同型局面**: 同じ局面が3回現れた場合の引き分け判定
@@ -62,10 +61,7 @@
 ## 🟢 Low Priority Items
 
 ### Code Quality
-- [ ] **未使用コード削除**: 現在警告が出ている未使用関数の整理
-  - [ ] `is_own`メソッドの削除または使用
-  - [ ] `kind_from_char`関数の削除または使用
-  - [ ] `print`メソッドの削除（`print_as_comment`で代替）
+- [x] **未使用コード削除**: depth ベースのメソッド削除完了
 - [ ] **エラー処理改善**: より詳細で親切なエラーメッセージ
 - [ ] **テスト追加**: ユニットテストとインテグレーションテスト
 - [ ] **ドキュメント**: 関数とモジュールのドキュメント化
@@ -82,23 +78,28 @@
 
 ## 📊 Current Status Summary
 
-**✅ WORKING**: 基本的なチェスAIとして動作中
-- READMEの使用例が正常に動作
-- 探索深度をコマンドライン引数で指定可能
+**✅ WORKING**: 実用的なチェスAIとして動作中
+- 反復深化探索による時間管理
+- キャッシュシステムによる高速化
+- オープニングブック対応
 - SAN形式での指し手出力 + ボード状態表示
 
-**⚡ PERFORMANCE**: 深い探索（depth > 4）では時間がかかる場合がある
+**⚡ PERFORMANCE**:
+- 反復深化により制限時間内で最適な探索深度を自動選択
+- キャッシュにより同一局面の再計算を回避
+- 典型的には深度5-7程度まで到達（5秒設定時）
 
 **🎯 NEXT STEPS**: アルファベータ剪定の実装が最も効果的な改善項目
 
-## Priority Order (Updated)
+## Priority Order
 
-1. **Immediate**: Algorithm Improvements (Alpha-Beta pruning)
-2. **Short-term**: Chess Rules Compliance, Performance Optimization
-3. **Long-term**: Advanced Features, Code Quality improvements
+1. **High Priority**: Alpha-Beta pruning, Move ordering
+2. **Medium Priority**: Chess Rules Compliance, Evaluation improvements
+3. **Low Priority**: Advanced Features, Code Quality improvements
 
-## Implementation Notes
+## Recent Updates (2025-10-17)
 
-- ✅ 基本的なAI機能は完全に実装済み - READMEの仕様を満たしている
-- 🚀 パフォーマンス改善（アルファベータ剪定）が次の重要な改善点
-- 📈 現在の実装は機能的に正しく、段階的に最適化可能な構造
+- ✅ `--depth`オプションを削除し、`--timeout`ベースの探索に統一
+- ✅ キャッシュキーから`depth`を削除し、`timeout`のみを使用
+- ✅ 未使用の`minimax`と`find_best_move`（depth版）を削除
+- ✅ 関数名から`_with_timeout`接尾辞を削除してリファクタリング

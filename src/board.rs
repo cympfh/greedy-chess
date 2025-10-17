@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::time::{Duration, Instant};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Color {
@@ -1179,61 +1180,63 @@ impl Board {
         self.is_checkmate() || self.is_stalemate()
     }
 
-    /// Min-Maxアルゴリズムで局面を評価する
+    /// 反復深化探索で最適な手を見つける
+    ///
+    /// 指定された時間内に深度を徐々に増やしながら探索を行い、
+    /// タイムアウト時点での最良の手を返す
     ///
     /// # 引数
-    /// * `depth` - 探索深度
-    /// * `maximizing` - 最大化側（白）の手番かどうか
-    ///
-    /// # 戻り値
-    /// 評価値（白側から見た値）
-    fn minimax(&self, depth: u32, maximizing: bool) -> i32 {
-        if depth == 0 || self.is_game_over() {
-            if self.is_checkmate() {
-                // チェックメイトは非常に悪い/良い評価
-                return if maximizing { -100000 } else { 100000 };
-            }
-            if self.is_stalemate() {
-                return 0; // ステイルメイトは引き分け
-            }
-            return self.evaluate();
-        }
-
-        let moves = self.generate_legal_moves();
-        if moves.is_empty() {
-            // 合法手がない場合はチェックメイト
-            return if maximizing { -100000 } else { 100000 };
-        }
-
-        if maximizing {
-            let mut max_eval = -100001;
-            for m in moves {
-                let mut board_copy = self.clone();
-                board_copy.make_move(m);
-                let eval = board_copy.minimax(depth - 1, false);
-                max_eval = max_eval.max(eval);
-            }
-            max_eval
-        } else {
-            let mut min_eval = 100001;
-            for m in moves {
-                let mut board_copy = self.clone();
-                board_copy.make_move(m);
-                let eval = board_copy.minimax(depth - 1, true);
-                min_eval = min_eval.min(eval);
-            }
-            min_eval
-        }
-    }
-
-    /// Min-Max探索で最適な手を見つける
-    ///
-    /// # 引数
-    /// * `depth` - 探索深度
+    /// * `timeout` - 探索の制限時間
     ///
     /// # 戻り値
     /// 最適手（合法手がない場合はNone）
-    pub fn find_best_move(&self, depth: u32) -> Option<Move> {
+    pub fn find_best_move(&self, timeout: Duration) -> Option<Move> {
+        let moves = self.generate_legal_moves();
+        if moves.is_empty() {
+            return None;
+        }
+
+        let start_time = Instant::now();
+        let mut best_move = moves[0];
+        let mut current_depth = 1;
+
+        loop {
+            // 各深度での探索
+            if let Some(result) = self.search_at_depth(current_depth, start_time, timeout) {
+                best_move = result;
+                eprintln!("; Completed depth {} (elapsed: {:.2}s)",
+                         current_depth,
+                         start_time.elapsed().as_secs_f64());
+            } else {
+                // タイムアウトした場合は前回の結果を返す
+                eprintln!("; Timeout at depth {} (elapsed: {:.2}s)",
+                         current_depth,
+                         start_time.elapsed().as_secs_f64());
+                break;
+            }
+
+            // タイムアウトチェック
+            if start_time.elapsed() >= timeout {
+                break;
+            }
+
+            current_depth += 1;
+        }
+
+        eprintln!("; Final depth reached: {}", current_depth - 1);
+        Some(best_move)
+    }
+
+    /// 指定深度で最適な手を探索する
+    ///
+    /// # 引数
+    /// * `depth` - 探索深度
+    /// * `start_time` - 探索開始時刻
+    /// * `timeout` - 探索の制限時間
+    ///
+    /// # 戻り値
+    /// タイムアウト前に完了した場合は最適手、タイムアウトした場合はNone
+    fn search_at_depth(&self, depth: u32, start_time: Instant, timeout: Duration) -> Option<Move> {
         let moves = self.generate_legal_moves();
         if moves.is_empty() {
             return None;
@@ -1244,9 +1247,14 @@ impl Board {
         let mut best_eval = if maximizing { -100001 } else { 100001 };
 
         for m in moves {
+            // タイムアウトチェック
+            if start_time.elapsed() >= timeout {
+                return None;
+            }
+
             let mut board_copy = self.clone();
             board_copy.make_move(m);
-            let eval = board_copy.minimax(depth - 1, !maximizing);
+            let eval = board_copy.minimax(depth - 1, !maximizing, start_time, timeout)?;
 
             if maximizing && eval > best_eval {
                 best_eval = eval;
@@ -1258,6 +1266,58 @@ impl Board {
         }
 
         Some(best_move)
+    }
+
+    /// Min-Maxアルゴリズムで局面を評価する
+    ///
+    /// # 引数
+    /// * `depth` - 探索深度
+    /// * `maximizing` - 最大化側（白）の手番かどうか
+    /// * `start_time` - 探索開始時刻
+    /// * `timeout` - 探索の制限時間
+    ///
+    /// # 戻り値
+    /// タイムアウト前に完了した場合は評価値、タイムアウトした場合はNone
+    fn minimax(&self, depth: u32, maximizing: bool, start_time: Instant, timeout: Duration) -> Option<i32> {
+        // タイムアウトチェック
+        if start_time.elapsed() >= timeout {
+            return None;
+        }
+
+        if depth == 0 || self.is_game_over() {
+            if self.is_checkmate() {
+                return Some(if maximizing { -100000 } else { 100000 });
+            }
+            if self.is_stalemate() {
+                return Some(0);
+            }
+            return Some(self.evaluate());
+        }
+
+        let moves = self.generate_legal_moves();
+        if moves.is_empty() {
+            return Some(if maximizing { -100000 } else { 100000 });
+        }
+
+        if maximizing {
+            let mut max_eval = -100001;
+            for m in moves {
+                let mut board_copy = self.clone();
+                board_copy.make_move(m);
+                let eval = board_copy.minimax(depth - 1, false, start_time, timeout)?;
+                max_eval = max_eval.max(eval);
+            }
+            Some(max_eval)
+        } else {
+            let mut min_eval = 100001;
+            for m in moves {
+                let mut board_copy = self.clone();
+                board_copy.make_move(m);
+                let eval = board_copy.minimax(depth - 1, true, start_time, timeout)?;
+                min_eval = min_eval.min(eval);
+            }
+            Some(min_eval)
+        }
     }
 
     /// 盤面状態を正規化された文字列に変換する
