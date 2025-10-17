@@ -1277,7 +1277,7 @@ impl Board {
 
                     let mut board_copy = self.clone();
                     board_copy.make_move(m);
-                    let eval = board_copy.minimax(depth - 1, !maximizing, start_time, timeout)?;
+                    let eval = board_copy.alphabeta(depth - 1, -100001, 100001, !maximizing, start_time, timeout)?;
                     Some((m, eval))
                 })
                 .collect();
@@ -1307,9 +1307,11 @@ impl Board {
 
             Some(best_move)
         } else {
-            // 直列探索（既存のロジック）
+            // 直列探索（Alpha-Beta剪定あり）
             let mut best_move = moves[0];
             let mut best_eval = if maximizing { -100001 } else { 100001 };
+            let mut alpha = -100001;
+            let mut beta = 100001;
 
             for m in moves {
                 // タイムアウトチェック
@@ -1319,14 +1321,25 @@ impl Board {
 
                 let mut board_copy = self.clone();
                 board_copy.make_move(m);
-                let eval = board_copy.minimax(depth - 1, !maximizing, start_time, timeout)?;
+                let eval = board_copy.alphabeta(depth - 1, alpha, beta, !maximizing, start_time, timeout)?;
 
-                if maximizing && eval > best_eval {
-                    best_eval = eval;
-                    best_move = m;
-                } else if !maximizing && eval < best_eval {
-                    best_eval = eval;
-                    best_move = m;
+                if maximizing {
+                    if eval > best_eval {
+                        best_eval = eval;
+                        best_move = m;
+                    }
+                    alpha = alpha.max(eval);
+                } else {
+                    if eval < best_eval {
+                        best_eval = eval;
+                        best_move = m;
+                    }
+                    beta = beta.min(eval);
+                }
+
+                // ルートノードでも剪定可能
+                if beta <= alpha {
+                    break;
                 }
             }
 
@@ -1334,19 +1347,23 @@ impl Board {
         }
     }
 
-    /// Min-Maxアルゴリズムで局面を評価する
+    /// Alpha-Beta剪定アルゴリズムで局面を評価する
     ///
     /// # 引数
     /// * `depth` - 探索深度
+    /// * `alpha` - 白（最大化側）の最低保証値
+    /// * `beta` - 黒（最小化側）の最低保証値
     /// * `maximizing` - 最大化側（白）の手番かどうか
     /// * `start_time` - 探索開始時刻
     /// * `timeout` - 探索の制限時間
     ///
     /// # 戻り値
     /// タイムアウト前に完了した場合は評価値、タイムアウトした場合はNone
-    fn minimax(
+    fn alphabeta(
         &self,
         depth: u32,
+        mut alpha: i32,
+        mut beta: i32,
         maximizing: bool,
         start_time: Instant,
         timeout: Duration,
@@ -1376,8 +1393,12 @@ impl Board {
             for m in moves {
                 let mut board_copy = self.clone();
                 board_copy.make_move(m);
-                let eval = board_copy.minimax(depth - 1, false, start_time, timeout)?;
+                let eval = board_copy.alphabeta(depth - 1, alpha, beta, false, start_time, timeout)?;
                 max_eval = max_eval.max(eval);
+                alpha = alpha.max(eval);
+                if beta <= alpha {
+                    break; // Beta cutoff（剪定）
+                }
             }
             Some(max_eval)
         } else {
@@ -1385,8 +1406,12 @@ impl Board {
             for m in moves {
                 let mut board_copy = self.clone();
                 board_copy.make_move(m);
-                let eval = board_copy.minimax(depth - 1, true, start_time, timeout)?;
+                let eval = board_copy.alphabeta(depth - 1, alpha, beta, true, start_time, timeout)?;
                 min_eval = min_eval.min(eval);
+                beta = beta.min(eval);
+                if beta <= alpha {
+                    break; // Alpha cutoff（剪定）
+                }
             }
             Some(min_eval)
         }

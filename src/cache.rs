@@ -16,12 +16,14 @@ impl Cache {
         }
     }
 
-    /// 盤面状態とタイムアウトからキャッシュキー（ハッシュ値）を生成する
-    fn generate_key(&self, board_state: &str, timeout_secs: u64) -> String {
+    /// 盤面状態、タイムアウト、スレッド数からキャッシュキー（ハッシュ値）を生成する
+    fn generate_key(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>) -> String {
         let mut hasher = Sha256::new();
         hasher.update(board_state.as_bytes());
         hasher.update(b"timeout:");
         hasher.update(timeout_secs.to_string().as_bytes());
+        hasher.update(b"threads:");
+        hasher.update(threads.unwrap_or(0).to_string().as_bytes());
         format!("{:x}", hasher.finalize())
     }
 
@@ -35,8 +37,9 @@ impl Cache {
     /// # 引数
     /// * `board_state` - 正規化された盤面状態の文字列
     /// * `timeout_secs` - タイムアウト（秒単位）
-    pub fn read(&self, board_state: &str, timeout_secs: u64) -> Option<String> {
-        let key = self.generate_key(board_state, timeout_secs);
+    /// * `threads` - スレッド数（Noneの場合は直列実行）
+    pub fn read(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>) -> Option<String> {
+        let key = self.generate_key(board_state, timeout_secs, threads);
         let path = self.get_path(&key);
 
         if !path.exists() {
@@ -53,11 +56,12 @@ impl Cache {
     /// # 引数
     /// * `board_state` - 正規化された盤面状態の文字列
     /// * `timeout_secs` - タイムアウト（秒単位）
+    /// * `threads` - スレッド数（Noneの場合は直列実行）
     /// * `best_move` - 最善手（SAN形式）
-    pub fn write(&self, board_state: &str, timeout_secs: u64, best_move: &str) -> std::io::Result<()> {
+    pub fn write(&self, board_state: &str, timeout_secs: u64, threads: Option<usize>, best_move: &str) -> std::io::Result<()> {
         fs::create_dir_all(&self.cache_dir)?;
 
-        let key = self.generate_key(board_state, timeout_secs);
+        let key = self.generate_key(board_state, timeout_secs, threads);
         let path = self.get_path(&key);
 
         let result = serde_json::json!({

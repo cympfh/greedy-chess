@@ -78,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let board_state = board.serialize();
 
         // キャッシュから結果を読み込む
-        if let Some(cached_move) = cache.read(&board_state, args.timeout) {
+        if let Some(cached_move) = cache.read(&board_state, args.timeout, args.threads) {
             eprintln!("; Using cached result");
             cached_move
         } else {
@@ -100,7 +100,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             // キャッシュに保存
-            if let Err(e) = cache.write(&board_state, args.timeout, &san) {
+            if let Err(e) = cache.write(&board_state, args.timeout, args.threads, &san) {
                 eprintln!("; Warning: Failed to write cache: {}", e);
             }
             san
