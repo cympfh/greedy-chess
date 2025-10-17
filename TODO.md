@@ -25,6 +25,9 @@
 
 ## 🔴 High Priority Remaining Items
 
+### Opening Book
+- [ ] **基本的なオープニングブック**: よくあるオープニングムーブを10から20種類ほどハードコーディングしておいてそれを使う
+
 ### Algorithm Improvements
 - [ ] **アルファベータ剪定**: Min-maxの高速化（現在はfull tree search）
 - [ ] **移動順序付け**: より効率的な探索のための手の順序付け
